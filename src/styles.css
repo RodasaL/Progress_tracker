@@ -1,0 +1,512 @@
+:root {
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+  --bg: #080a14;
+  --card: #111426;
+  --card-2: #171b31;
+  --text: #f2f4ff;
+  --muted: #b9bfd8;
+  --accent: #6b7cff;
+  --accent-2: #20d9b2;
+  --danger: #ff6a89;
+  --border: #262b47;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1f2443 0%, var(--bg) 50%);
+  color: var(--text);
+}
+
+.app-shell {
+  width: min(1150px, 92vw);
+  margin: 32px auto;
+  display: grid;
+  gap: 20px;
+}
+
+.card {
+  background: linear-gradient(150deg, var(--card), var(--card-2));
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 20px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.hero {
+  display: grid;
+  gap: 16px;
+}
+
+.hero-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hero h1 {
+  margin: 6px 0 4px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--accent-2);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.stats-grid article {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.stats-grid article span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stats-grid article strong {
+  font-size: 24px;
+}
+
+.progress-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #090b17;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.progress-track > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.circular-progress-card {
+  min-width: 280px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+}
+
+.circular-progress-widget {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  display: grid;
+  place-items: center;
+}
+
+.circular-progress-svg {
+  width: 260px;
+  height: 260px;
+}
+
+.circular-progress-track,
+.circular-progress-value {
+  fill: none;
+  stroke-width: 20;
+  transform-origin: center;
+}
+
+.circular-progress-track {
+  stroke: #d5d7db;
+  opacity: 0.55;
+  stroke-linecap: round;
+}
+
+.circular-progress-value {
+  stroke: url(#levelGradient);
+  stroke-linecap: round;
+}
+
+.circular-progress-knob-shadow {
+  fill: rgba(0, 0, 0, 0.16);
+}
+
+.circular-progress-knob {
+  fill: #57e6ba;
+  stroke: #f4f7fa;
+  stroke-width: 4;
+}
+
+.circular-progress-center-card {
+  position: absolute;
+  inset: 36px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0;
+}
+
+.level-shield-wrap {
+  width: 58%;
+  min-width: 86px;
+  max-width: 132px;
+  aspect-ratio: 1 / 1.15;
+  display: grid;
+  place-items: center;
+}
+
+.level-shield-svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.28));
+}
+
+.circular-progress-footnote {
+  margin: 0;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.content-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.content-grid section {
+  min-height: 280px;
+}
+
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.activity-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.activity-list li.checked {
+  border-color: #3a4fcc;
+  background: rgba(107, 124, 255, 0.12);
+}
+
+.activity-list label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.activity-list input {
+  margin-top: 4px;
+  accent-color: var(--accent);
+}
+
+.activity-list small {
+  color: var(--muted);
+}
+
+.summary-row {
+  margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 10px;
+  font-weight: 500;
+}
+
+.dev-tools {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dev-time-controls,
+.dev-level-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  flex-wrap: wrap;
+}
+
+.dev-time-controls span,
+.dev-level-controls span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dev-time-controls > div,
+.dev-level-controls > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dev-level-controls input {
+  width: 90px;
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+
+.add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  grid-template-areas:
+    "name points"
+    "button button";
+  gap: 8px;
+  margin: 12px 0 14px;
+  align-items: center;
+}
+
+.add-form input[type="text"] {
+  grid-area: name;
+  min-width: 0;
+}
+
+.add-form input[type="number"] {
+  grid-area: points;
+}
+
+.add-form button {
+  grid-area: button;
+  width: 100%;
+}
+
+input[type="text"],
+input[type="number"] {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0b0e1e;
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+input[type="number"] {
+  appearance: textfield;
+}
+
+.routine-list {
+  display: grid;
+  gap: 12px;
+}
+
+.routine-list article {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.routine-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.routine-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity-points-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.activity-points-editor input {
+  width: 72px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.remove {
+  background: rgba(255, 106, 137, 0.18);
+  border: 1px solid rgba(255, 106, 137, 0.35);
+  color: #ffd5de;
+  padding: 6px 10px;
+}
+
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.chip.active {
+  border-color: var(--accent);
+  background: rgba(107, 124, 255, 0.2);
+}
+
+.history-table-wrap {
+  overflow: auto;
+  margin-top: 12px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 280px;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  padding: 9px 6px;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.positive {
+  color: #85f3cd;
+}
+
+.negative {
+  color: #ff9cb1;
+}
+
+.feedback {
+  margin-top: 10px;
+  color: #85f3cd;
+}
+
+@media (max-width: 980px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-top {
+    justify-content: center;
+  }
+
+  .hero-top > div:first-child {
+    width: 100%;
+  }
+
+  .circular-progress-widget {
+    width: 230px;
+    height: 230px;
+  }
+
+  .circular-progress-svg {
+    width: 230px;
+    height: 230px;
+  }
+
+  .circular-progress-center-card {
+    inset: 34px;
+  }
+
+  .level-shield-wrap {
+    width: 56%;
+    min-width: 76px;
+    max-width: 112px;
+  }
+
+  .add-form {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "name"
+      "points"
+      "button";
+  }
+
+  .add-form button {
+    width: 100%;
+  }
+
+  .routine-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
