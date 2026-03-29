@@ -30,12 +30,20 @@ const monthFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric"
 });
 
+function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 const defaultData = {
   activities: [
-    { id: crypto.randomUUID(), name: "Gym", points: 15, days: [1, 3, 5] },
-    { id: crypto.randomUUID(), name: "Study", points: 15, days: [1, 2, 3, 4, 5] },
-    { id: crypto.randomUUID(), name: "Flexibility", points: 15, days: [2, 4, 6] },
-    { id: crypto.randomUUID(), name: "Run", points: 15, days: [2, 4, 6] }
+    { id: createId(), name: "Gym", points: 15, days: [1, 3, 5] },
+    { id: createId(), name: "Study", points: 15, days: [1, 2, 3, 4, 5] },
+    { id: createId(), name: "Flexibility", points: 15, days: [2, 4, 6] },
+    { id: createId(), name: "Run", points: 15, days: [2, 4, 6] }
   ],
   checksByDate: {},
   history: [],
@@ -550,7 +558,7 @@ export default function App() {
       activities: [
         ...state.activities,
         {
-          id: crypto.randomUUID(),
+          id: createId(),
           name: trimmed,
           points: normalizeActivityPoints(newActivityPoints),
           days: [1, 2, 3, 4, 5]
