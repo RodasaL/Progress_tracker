@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LEVEL_STEP,
   applyDelta,
-  daysBetween,
   getDailyDelta,
   getLevelFromPoints,
   getProgressToNextLevel
@@ -10,7 +9,7 @@ import {
 
 const STORAGE_KEY = "progress-tracker-v1";
 const STATE_API_URL = "/api/state";
-const SKIP_DAY_PENALTY = 10;
+const TIME_API_URL = "/api/time";
 const DEFAULT_ACTIVITY_POINTS = 15;
 const LEVELS_PER_SHIELD = 16;
 
@@ -24,6 +23,12 @@ const SHIELD_PALETTES = [
 ];
 
 const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const CALENDAR_WEEK_DAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+
+const monthFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric"
+});
 
 const defaultData = {
   activities: [
@@ -47,6 +52,136 @@ function getTodayKey(referenceDate = new Date()) {
 function getCurrentWeekday(referenceDate = new Date()) {
   const jsDay = referenceDate.getDay();
   return jsDay === 0 ? 7 : jsDay;
+}
+
+function getDateFromKey(dateKey) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function toDateKey(year, monthIndex, day) {
+  const paddedMonth = String(monthIndex + 1).padStart(2, "0");
+  const paddedDay = String(day).padStart(2, "0");
+  return `${year}-${paddedMonth}-${paddedDay}`;
+}
+
+function getCalendarTone(entry) {
+  if (!entry) {
+    return "empty";
+  }
+
+  if (entry.done === entry.total && entry.total > 0) {
+    return "peak";
+  }
+
+  if (entry.delta > 10) {
+    return "high";
+  }
+
+  if (entry.delta > 0) {
+    return "mid";
+  }
+
+  return "low";
+}
+
+function getDateRangeKeys(startKey, endKey) {
+  const keys = [];
+  const cursor = getDateFromKey(startKey);
+  const endDate = getDateFromKey(endKey);
+
+  while (cursor <= endDate) {
+    keys.push(getTodayKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return keys;
+}
+
+function rebuildProgressState(currentState, referenceDate, includeToday = false) {
+  const closeUntil = new Date(referenceDate);
+  closeUntil.setHours(12, 0, 0, 0);
+  if (!includeToday) {
+    closeUntil.setDate(closeUntil.getDate() - 1);
+  }
+
+  const closeUntilKey = getTodayKey(closeUntil);
+  const trackedDateKeys = [
+    ...Object.keys(currentState.checksByDate || {}),
+    ...currentState.history.map((entry) => entry.date)
+  ]
+    .filter((dateKey) => dateKey <= closeUntilKey)
+    .sort();
+
+  if (trackedDateKeys.length === 0) {
+    return currentState;
+  }
+
+  const rangeKeys = getDateRangeKeys(trackedDateKeys[0], closeUntilKey);
+  const totalCount = currentState.activities.length;
+  const totalPoints = currentState.activities.reduce(
+    (sum, activity) => sum + normalizeActivityPoints(activity.points),
+    0
+  );
+
+  let nextPoints = 0;
+  let nextStreak = 0;
+  let nextLongestStreak = 0;
+
+  const chronologicalHistory = rangeKeys.map((dateKey) => {
+    const dayChecks = currentState.checksByDate[dateKey] || {};
+    const doneCount = currentState.activities.filter((activity) => dayChecks[activity.id]).length;
+    const donePoints = currentState.activities.reduce((sum, activity) => {
+      if (!dayChecks[activity.id]) {
+        return sum;
+      }
+
+      return sum + normalizeActivityPoints(activity.points);
+    }, 0);
+
+    const delta = getDailyDelta({ donePoints, totalPoints });
+    nextPoints = applyDelta(nextPoints, delta);
+
+    const perfectDay = doneCount === totalCount && totalCount > 0;
+    nextStreak = perfectDay ? nextStreak + 1 : 0;
+    nextLongestStreak = Math.max(nextLongestStreak, nextStreak);
+
+    return {
+      date: dateKey,
+      done: doneCount,
+      total: totalCount,
+      donePoints,
+      totalPoints,
+      delta,
+      pointsAfter: nextPoints,
+      missedPenalty: 0
+    };
+  });
+
+  const nextHistory = chronologicalHistory.slice(-30).reverse();
+
+  return {
+    ...currentState,
+    points: nextPoints,
+    streak: nextStreak,
+    longestStreak: nextLongestStreak,
+    lastCheckInDate: closeUntilKey,
+    history: nextHistory
+  };
+}
+
+function hasProgressChanged(currentState, nextState) {
+  if (currentState === nextState) {
+    return false;
+  }
+
+  return (
+    currentState.points !== nextState.points ||
+    currentState.streak !== nextState.streak ||
+    currentState.longestStreak !== nextState.longestStreak ||
+    currentState.lastCheckInDate !== nextState.lastCheckInDate ||
+    JSON.stringify(currentState.history) !== JSON.stringify(nextState.history)
+  );
 }
 
 function readStorage() {
@@ -89,6 +224,19 @@ async function writeRemoteState(nextState) {
   if (!response.ok) {
     throw new Error(`Failed to save remote state (${response.status})`);
   }
+}
+
+async function readRemoteTime() {
+  const response = await fetch(TIME_API_URL, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load server time (${response.status})`);
+  }
+
+  return response.json();
 }
 
 function normalizeActivityPoints(value) {
@@ -154,17 +302,27 @@ export default function App() {
   const [dailyFeedback, setDailyFeedback] = useState(null);
   const [devDayOffset, setDevDayOffset] = useState(0);
   const [devLevelInput, setDevLevelInput] = useState(1);
+  const [serverTodayKey, setServerTodayKey] = useState(() => getTodayKey(new Date()));
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const initial = new Date();
+    return new Date(initial.getFullYear(), initial.getMonth(), 1);
+  });
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
+  const [checklistDateKey, setChecklistDateKey] = useState(null);
 
   const simulatedDate = useMemo(() => {
-    const reference = new Date();
+    const reference = getDateFromKey(serverTodayKey);
     reference.setHours(12, 0, 0, 0);
     reference.setDate(reference.getDate() + devDayOffset);
     return reference;
-  }, [devDayOffset]);
+  }, [devDayOffset, serverTodayKey]);
 
   const todayKey = getTodayKey(simulatedDate);
-  const weekday = getCurrentWeekday(simulatedDate);
-  const checks = state.checksByDate[todayKey] || {};
+  const activeChecklistDateKey =
+    checklistDateKey && checklistDateKey <= todayKey ? checklistDateKey : todayKey;
+  const checklistDate = useMemo(() => getDateFromKey(activeChecklistDateKey), [activeChecklistDateKey]);
+  const weekday = getCurrentWeekday(checklistDate);
+  const checks = state.checksByDate[activeChecklistDateKey] || {};
 
   const donePointsToday = state.activities.reduce((sum, activity) => {
     if (!checks[activity.id]) {
@@ -200,8 +358,6 @@ export default function App() {
   const markerAngleRadians = (markerAngleDegrees * Math.PI) / 180;
   const markerX = circleCenter + circleRadius * Math.cos(markerAngleRadians);
   const markerY = circleCenter + circleRadius * Math.sin(markerAngleRadians);
-  const alreadyCheckedInToday = state.history.some((entry) => entry.date === todayKey);
-
   const insights = useMemo(() => {
     if (state.history.length === 0) {
       return {
@@ -221,6 +377,88 @@ export default function App() {
       averageDelta
     };
   }, [state.history]);
+
+  const historyByDate = useMemo(
+    () => Object.fromEntries(state.history.map((entry) => [entry.date, entry])),
+    [state.history]
+  );
+
+  const monthLabel = monthFormatter.format(calendarMonth);
+
+  const calendarCells = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const monthIndex = calendarMonth.getMonth();
+    const firstDay = new Date(year, monthIndex, 1);
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const firstWeekdayOffset = (firstDay.getDay() + 6) % 7;
+    const totalCells = Math.ceil((firstWeekdayOffset + daysInMonth) / 7) * 7;
+
+    return Array.from({ length: totalCells }, (_, index) => {
+      const dayNumber = index - firstWeekdayOffset + 1;
+      const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth;
+
+      if (!inMonth) {
+        return {
+          key: `empty-${year}-${monthIndex}-${index}`,
+          inMonth: false
+        };
+      }
+
+      const dateKey = toDateKey(year, monthIndex, dayNumber);
+      const entry = historyByDate[dateKey] ?? null;
+      const tone = getCalendarTone(entry);
+
+      return {
+        key: dateKey,
+        inMonth: true,
+        dateKey,
+        dayNumber,
+        entry,
+        tone
+      };
+    });
+  }, [calendarMonth, historyByDate]);
+
+  function changeCalendarMonth(offset) {
+    setCalendarMonth((current) => {
+      const next = new Date(current.getFullYear(), current.getMonth() + offset, 1);
+      return next;
+    });
+    setSelectedCalendarDay(null);
+  }
+
+  function selectCalendarDay(dateKey) {
+    const nextDateKey = selectedCalendarDay === dateKey ? null : dateKey;
+    setSelectedCalendarDay(nextDateKey);
+    setChecklistDateKey(nextDateKey && nextDateKey <= todayKey ? nextDateKey : null);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncServerClock() {
+      try {
+        const remoteTime = await readRemoteTime();
+        if (cancelled || !remoteTime?.today) {
+          return;
+        }
+
+        setServerTodayKey(remoteTime.today);
+      } catch {
+        if (!cancelled) {
+          setServerTodayKey(getTodayKey(new Date()));
+        }
+      }
+    }
+
+    syncServerClock();
+    const intervalId = window.setInterval(syncServerClock, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isDev) {
@@ -259,6 +497,13 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const nextState = rebuildProgressState(state, simulatedDate);
+    if (hasProgressChanged(state, nextState)) {
+      persist(nextState);
+    }
+  }, [simulatedDate, state]);
+
   function persist(nextState) {
     setState(nextState);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
@@ -269,23 +514,25 @@ export default function App() {
   }
 
   function toggleCheck(activityId) {
-    if (alreadyCheckedInToday) {
-      return;
-    }
-
-    const currentChecks = state.checksByDate[todayKey] || {};
+    const currentChecks = state.checksByDate[activeChecklistDateKey] || {};
     const nextChecks = {
       ...currentChecks,
       [activityId]: !currentChecks[activityId]
     };
 
-    const nextState = {
+    const draftState = {
       ...state,
       checksByDate: {
         ...state.checksByDate,
-        [todayKey]: nextChecks
+        [activeChecklistDateKey]: nextChecks
       }
     };
+
+    const targetDayIsClosed = Boolean(historyByDate[activeChecklistDateKey]);
+    const shouldRebuild = activeChecklistDateKey < todayKey || targetDayIsClosed;
+    const nextState = shouldRebuild
+      ? rebuildProgressState(draftState, simulatedDate, activeChecklistDateKey === todayKey)
+      : draftState;
 
     persist(nextState);
   }
@@ -392,65 +639,29 @@ export default function App() {
   }
 
   function finishDay() {
-    if (alreadyCheckedInToday) {
+    if (activeChecklistDateKey > todayKey) {
       return;
     }
 
-    const doneCount = state.activities.filter((activity) => checks[activity.id]).length;
-    const totalCount = state.activities.length;
-    const donePoints = state.activities.reduce((sum, activity) => {
-      if (!checks[activity.id]) {
-        return sum;
-      }
-
-      return sum + normalizeActivityPoints(activity.points);
-    }, 0);
-    const totalPoints = state.activities.reduce(
-      (sum, activity) => sum + normalizeActivityPoints(activity.points),
-      0
-    );
-    const baseDelta = getDailyDelta({ donePoints, totalPoints });
-
-    let missedDaysPenalty = 0;
-    if (state.lastCheckInDate) {
-      const passedDays = daysBetween(state.lastCheckInDate, todayKey);
-      const skippedDays = Math.max(0, passedDays - 1);
-      missedDaysPenalty = skippedDays * SKIP_DAY_PENALTY;
+    const includeToday = activeChecklistDateKey === todayKey;
+    const nextState = rebuildProgressState(state, simulatedDate, includeToday);
+    if (!hasProgressChanged(state, nextState)) {
+      return;
     }
 
-    const totalDelta = baseDelta - missedDaysPenalty;
-    const nextPoints = applyDelta(state.points, totalDelta);
-    const perfectDay = doneCount === totalCount && totalCount > 0;
-    const nextStreak = perfectDay && missedDaysPenalty === 0 ? state.streak + 1 : 0;
-
-    const nextState = {
-      ...state,
-      points: nextPoints,
-      streak: nextStreak,
-      longestStreak: Math.max(state.longestStreak, nextStreak),
-      lastCheckInDate: todayKey,
-      history: [
-        {
-          date: todayKey,
-          done: doneCount,
-          total: totalCount,
-          donePoints,
-          totalPoints,
-          delta: totalDelta,
-          pointsAfter: nextPoints,
-          missedPenalty: missedDaysPenalty
-        },
-        ...state.history
-      ].slice(0, 30)
-    };
-
     persist(nextState);
+
+    const entry = nextState.history.find((historyEntry) => historyEntry.date === activeChecklistDateKey);
+    if (!entry) {
+      return;
+    }
+
     setDailyFeedback({
-      date: todayKey,
+      date: activeChecklistDateKey,
       message:
-        totalDelta >= 0
-          ? `Great job! You earned ${totalDelta} points today.`
-          : `You lost ${Math.abs(totalDelta)} points today. You'll recover tomorrow.`
+        entry.delta >= 0
+          ? `Great job! You earned ${entry.delta} points for this day.`
+          : `You lost ${Math.abs(entry.delta)} points for this day.`
     });
   }
 
@@ -547,7 +758,10 @@ export default function App() {
       <main className="content-grid">
         <section className="card">
           <h2>Today's checklist</h2>
-          <p className="muted">{todayKey}</p>
+          <p className="muted">
+            {activeChecklistDateKey}
+            {activeChecklistDateKey < todayKey ? " · Editing past day" : ""}
+          </p>
 
           {isDev && (
             <div className="dev-tools">
@@ -616,7 +830,6 @@ export default function App() {
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => toggleCheck(activity.id)}
-                        disabled={alreadyCheckedInToday}
                       />
                       <div>
                         <strong>{activity.name}</strong>
@@ -632,14 +845,14 @@ export default function App() {
 
           <div className="summary-row">
             <span>
-              Done today: {allDoneCount}/{totalActivities} · Points: {donePointsToday}/{totalPointsToday}
+              Done: {allDoneCount}/{totalActivities} · Points: {donePointsToday}/{totalPointsToday}
             </span>
-            <button type="button" onClick={finishDay} disabled={alreadyCheckedInToday}>
-              {alreadyCheckedInToday ? "Day completed" : "Complete day"}
+            <button type="button" onClick={finishDay}>
+              {activeChecklistDateKey === todayKey ? "Complete day now" : "Save day edits"}
             </button>
           </div>
 
-          {dailyFeedback?.date === todayKey && <p className="feedback">{dailyFeedback.message}</p>}
+          {dailyFeedback?.date === activeChecklistDateKey && <p className="feedback">{dailyFeedback.message}</p>}
         </section>
 
         <section className="card">
@@ -725,39 +938,76 @@ export default function App() {
             </article>
           </div>
 
-          <div className="history-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Done</th>
-                  <th>Delta</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.history.length === 0 ? (
-                  <tr>
-                    <td colSpan="4" className="muted">
-                      No check-ins yet.
-                    </td>
-                  </tr>
-                ) : (
-                  state.history.map((entry) => (
-                    <tr key={entry.date}>
-                      <td>{entry.date}</td>
-                      <td>
-                        {entry.done}/{entry.total}
-                      </td>
-                      <td className={entry.delta >= 0 ? "positive" : "negative"}>
-                        {entry.delta >= 0 ? `+${entry.delta}` : entry.delta}
-                      </td>
-                      <td>{entry.pointsAfter}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="calendar-wrap" aria-label="Monthly progress calendar">
+            <div className="calendar-head">
+              <button
+                type="button"
+                className="secondary calendar-nav"
+                onClick={() => changeCalendarMonth(-1)}
+                aria-label="Previous month"
+              >
+                {"<"}
+              </button>
+              <h3>{monthLabel}</h3>
+              <button
+                type="button"
+                className="secondary calendar-nav"
+                onClick={() => changeCalendarMonth(1)}
+                aria-label="Next month"
+              >
+                {">"}
+              </button>
+            </div>
+
+            <div className="calendar-weekdays" aria-hidden="true">
+              {CALENDAR_WEEK_DAYS.map((weekday) => (
+                <span key={weekday}>{weekday}</span>
+              ))}
+            </div>
+
+            <div className="calendar-grid">
+              {calendarCells.map((cell) => {
+                if (!cell.inMonth) {
+                  return <div key={cell.key} className="calendar-day calendar-day-empty" aria-hidden="true" />;
+                }
+
+                const classes = ["calendar-day", `calendar-day-${cell.tone}`];
+                if (cell.dateKey === todayKey) {
+                  classes.push("calendar-day-today");
+                }
+                if (cell.dateKey === selectedCalendarDay) {
+                  classes.push("calendar-day-selected");
+                }
+
+                return (
+                  <button
+                    key={cell.key}
+                    type="button"
+                    className={classes.join(" ")}
+                    title={cell.dateKey}
+                    onClick={() => selectCalendarDay(cell.dateKey)}
+                  >
+                    <strong>{cell.dayNumber}</strong>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedCalendarDay && historyByDate[selectedCalendarDay] && (
+              <div className="calendar-day-details">
+                <div className="details-content">
+                  <span className="details-date">{selectedCalendarDay}</span>
+                  <span className="details-delta">
+                    {historyByDate[selectedCalendarDay].delta >= 0 ? "+" : ""}
+                    {historyByDate[selectedCalendarDay].delta} pts
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {state.history.length === 0 && (
+              <p className="muted calendar-empty-note">No check-ins yet for the selected month.</p>
+            )}
           </div>
         </section>
       </main>

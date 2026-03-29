@@ -28,6 +28,48 @@ It helps users track daily habits (gym, study, running, flexibility, and custom 
 - Vitest
 - localStorage fallback when API is unavailable
 
+## Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph Client["🌐 Client"]
+        Browser["Browser<br/>(React 18)"]
+    end
+
+    subgraph Dev["💻 Development"]
+        Vite["Vite Dev Server<br/>:5173<br/>Hot Reload"]
+    end
+
+    subgraph Prod["📦 Production"]
+        Dist["Static Files<br/>dist/"]
+    end
+
+    subgraph API["🔌 FastAPI Server<br/>:8000"]
+        Routes["API Routes<br/>/api/health<br/>/api/state<br/>/api/time"]
+        Docs["Documentation<br/>/docs<br/>/redoc"]
+    end
+
+    subgraph Data["💾 Data & External"]
+        DB["SQLite<br/>progress_tracker.db"]
+        TimeAPI["🌍 timeapi.io<br/>Server Time"]
+    end
+
+    Browser -->|"Hot Reload"| Vite
+    Browser -->|"Serve SPA"| Dist
+    Vite -->|"Proxy /api/*"| Routes
+    Dist -->|"Served by<br/>FastAPI"| Routes
+    Browser -->|"AJAX Calls"| Routes
+    Routes -->|"Query/Update"| DB
+    Routes -->|"Fetch Time"| TimeAPI
+    Routes -->|"Redirect"| Docs
+
+    style Client fill:#667eea,stroke:#333,stroke-width:2px,color:#fff
+    style Dev fill:#764ba2,stroke:#333,stroke-width:2px,color:#fff
+    style Prod fill:#f093fb,stroke:#333,stroke-width:2px,color:#333
+    style API fill:#4facfe,stroke:#333,stroke-width:2px,color:#fff
+    style Data fill:#43e97b,stroke:#333,stroke-width:2px,color:#333
+```
+
 ## Getting Started
 
 ```bash
@@ -39,7 +81,13 @@ poetry install
 
 ### Development (hot reload)
 
-Run in two terminals:
+Run both API + frontend in one terminal:
+
+```bash
+npm run dev
+```
+
+Optional (split terminals):
 
 Terminal 1 (API):
 
@@ -50,20 +98,21 @@ npm run api
 Terminal 2 (frontend):
 
 ```bash
-npm run dev
+npm run dev:web
 ```
 
 URLs:
 
-- Frontend: `http://localhost:5173`
+- Frontend: `http://localhost:5173` (or next free Vite port)
 - API health: `http://localhost:8000/api/health`
+- API time: `http://localhost:8000/api/time`
 - API docs (Swagger UI): `http://localhost:8000/docs`
 - API docs (ReDoc): `http://localhost:8000/redoc`
 
 Notes:
 
 - In dev, Vite proxies `/api/*` to FastAPI on port `8000`.
-- Stop with `Ctrl + C` in each terminal.
+- `Ctrl + C` in `npm run dev` stops both API and frontend.
 
 ### Production (without Docker)
 
@@ -103,6 +152,8 @@ The API is the persistence and serving layer for the app.
 - Returns saved state to the frontend on app load
 - Saves all updates from the frontend so data survives browser cache cleanup
 - Exposes a health endpoint (`/api/health`) for monitoring
+- Exposes server time for day rollover logic (`/api/time`)
+- Redirects API root (`/api`) to docs (`/docs`)
 - Serves the production frontend static files (`/` and `/assets/*`) in production mode
 
 In short:
@@ -114,6 +165,7 @@ In short:
 
 ```bash
 npm run dev
+npm run dev:web
 npm run api
 npm run test
 npm run build
@@ -142,6 +194,8 @@ Backend configuration (optional env vars):
 - `PORT` (default: `8000`)
 - `DB_PATH` (default: `backend/data/progress_tracker.db`)
 - `DIST_DIR` (default: `dist`)
+- `TIME_API_BASE_URL` (default: `https://timeapi.io/api/Time/current/zone`)
+- `TIME_API_TIMEZONE` (default: `UTC`)
 
 ## Scoring Rules
 
@@ -153,8 +207,9 @@ Core logic lives in `src/utils/progression.js`.
 	- `penalty = round(missedPoints * 0.6)`
 	- `dailyDelta = donePoints - penalty`
 - Perfect day bonus: `+30`
-- Skipped day penalty between check-ins: `-10` per skipped day (`SKIP_DAY_PENALTY` in `src/App.jsx`)
 - Points never go below zero
+
+Day rollover and history recomputation use server date from `/api/time`.
 
 ## Data Model
 

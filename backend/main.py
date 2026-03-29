@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib import error, parse, request
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -21,6 +23,8 @@ DB_PATH = Path(
     )
 ).resolve()
 DIST_DIR = Path(os.environ.get("DIST_DIR", str(BASE_DIR / "dist"))).resolve()
+TIME_API_BASE_URL = os.environ.get("TIME_API_BASE_URL", "https://timeapi.io/api/Time/current/zone")
+TIME_API_TIMEZONE = os.environ.get("TIME_API_TIMEZONE", "UTC")
 
 
 class StatePayload(BaseModel):
@@ -68,6 +72,45 @@ def save_state(state: dict[str, Any]) -> None:
         )
 
 
+def fetch_time_from_timeapi() -> dict[str, str]:
+    query = parse.urlencode({"timeZone": TIME_API_TIMEZONE})
+    url = f"{TIME_API_BASE_URL}?{query}"
+
+    try:
+        with request.urlopen(url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (error.URLError, TimeoutError, json.JSONDecodeError):
+        now = datetime.now(timezone.utc)
+        return {
+            "now": now.isoformat(),
+            "today": now.date().isoformat(),
+            "timezone": "UTC",
+            "source": "fallback-local",
+        }
+
+    year = payload.get("year")
+    month = payload.get("month")
+    day = payload.get("day")
+    hour = payload.get("hour", 0)
+    minute = payload.get("minute", 0)
+    seconds = payload.get("seconds", 0)
+
+    if isinstance(year, int) and isinstance(month, int) and isinstance(day, int):
+        now_text = f"{year:04d}-{month:02d}-{day:02d}T{int(hour):02d}:{int(minute):02d}:{int(seconds):02d}"
+        today_text = f"{year:04d}-{month:02d}-{day:02d}"
+    else:
+        date_time_text = str(payload.get("dateTime") or "")
+        now_text = date_time_text if date_time_text else datetime.now(timezone.utc).isoformat()
+        today_text = now_text.split("T")[0]
+
+    return {
+        "now": now_text,
+        "today": today_text,
+        "timezone": str(payload.get("timeZone") or TIME_API_TIMEZONE),
+        "source": "timeapi.io",
+    }
+
+
 init_db()
 app = FastAPI(title="Progress Tracker API")
 
@@ -83,6 +126,17 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api", include_in_schema=False)
+@app.get("/api/", include_in_schema=False)
+def api_index() -> RedirectResponse:
+    return RedirectResponse(url="/docs", status_code=307)
+
+
+@app.get("/api/time")
+def server_time() -> dict[str, str]:
+    return fetch_time_from_timeapi()
 
 
 @app.get("/api/state")
