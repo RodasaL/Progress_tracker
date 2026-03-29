@@ -25,3 +25,18 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Backend database
+backend/data/
+docker-data/
+
+# Python / Poetry
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment overrides
+.env
+
+# Docker
+.docker/

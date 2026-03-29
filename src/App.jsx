@@ -9,6 +9,7 @@ import {
 } from "./utils/progression";
 
 const STORAGE_KEY = "progress-tracker-v1";
+const STATE_API_URL = "/api/state";
 const SKIP_DAY_PENALTY = 10;
 const DEFAULT_ACTIVITY_POINTS = 15;
 const LEVELS_PER_SHIELD = 16;
@@ -22,14 +23,14 @@ const SHIELD_PALETTES = [
   { rim: "#bf2d1c", base: "#f76d5d", shadow: "#d94832", shine: "#ffb1a8", gem: "#f4f6f8" }
 ];
 
-const WEEK_DAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const defaultData = {
   activities: [
     { id: crypto.randomUUID(), name: "Gym", points: 15, days: [1, 3, 5] },
-    { id: crypto.randomUUID(), name: "Estudar", points: 15, days: [1, 2, 3, 4, 5] },
-    { id: crypto.randomUUID(), name: "Flexibilidade", points: 15, days: [2, 4, 6] },
-    { id: crypto.randomUUID(), name: "Correr", points: 15, days: [2, 4, 6] }
+    { id: crypto.randomUUID(), name: "Study", points: 15, days: [1, 2, 3, 4, 5] },
+    { id: crypto.randomUUID(), name: "Flexibility", points: 15, days: [2, 4, 6] },
+    { id: crypto.randomUUID(), name: "Run", points: 15, days: [2, 4, 6] }
   ],
   checksByDate: {},
   history: [],
@@ -64,6 +65,32 @@ function readStorage() {
   }
 }
 
+async function readRemoteState() {
+  const response = await fetch(STATE_API_URL, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load remote state (${response.status})`);
+  }
+
+  const payload = await response.json();
+  return payload?.state ?? null;
+}
+
+async function writeRemoteState(nextState) {
+  const response = await fetch(STATE_API_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state: nextState })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save remote state (${response.status})`);
+  }
+}
+
 function normalizeActivityPoints(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -88,7 +115,7 @@ function LevelShield({ tier, level }) {
       className="level-shield-svg"
       viewBox="0 0 100 120"
       role="img"
-      aria-label={`Escudo ${tier + 1} desbloqueado no nível ${level}`}
+      aria-label={`Shield ${tier + 1} unlocked at level ${level}`}
     >
       <defs>
         <linearGradient id={gradientId} x1="20%" y1="0%" x2="80%" y2="100%">
@@ -203,9 +230,42 @@ export default function App() {
     setDevLevelInput(level);
   }, [isDev, level]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncInitialState() {
+      try {
+        const remoteState = await readRemoteState();
+        if (!remoteState || cancelled) {
+          return;
+        }
+
+        const nextState = {
+          ...defaultData,
+          ...remoteState
+        };
+
+        setState(nextState);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      } catch {
+        // Keep local storage state when API is unavailable.
+      }
+    }
+
+    syncInitialState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function persist(nextState) {
     setState(nextState);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+
+    writeRemoteState(nextState).catch(() => {
+      // Keep working offline/local if backend is not reachable.
+    });
   }
 
   function toggleCheck(activityId) {
@@ -389,8 +449,8 @@ export default function App() {
       date: todayKey,
       message:
         totalDelta >= 0
-          ? `Boa! Ganhaste ${totalDelta} pontos hoje.`
-          : `Hoje perdeste ${Math.abs(totalDelta)} pontos. Amanhã recuperas.`
+          ? `Great job! You earned ${totalDelta} points today.`
+          : `You lost ${Math.abs(totalDelta)} points today. You'll recover tomorrow.`
     });
   }
 
@@ -400,19 +460,19 @@ export default function App() {
         <div className="hero-top">
           <div>
             <p className="eyebrow">Progress Tracker</p>
-            <h1>A tua rotina, em modo game</h1>
+            <h1>Your routine, gamified</h1>
             <p className="muted">
-              Faz check às atividades do dia, ganha pontos e sobe de nível.
+              Check off daily activities, earn points, and level up.
             </p>
           </div>
 
-          <div className="circular-progress-card" aria-label="Progresso de nível">
+          <div className="circular-progress-card" aria-label="Level progress">
             <div className="circular-progress-widget">
               <svg
                 className="circular-progress-svg"
                 viewBox="0 0 220 220"
                 role="img"
-                aria-label={`Nível ${level} com ${normalizedProgress}% para o próximo nível`}
+                aria-label={`Level ${level} with ${normalizedProgress}% toward the next level`}
               >
                 <defs>
                   <linearGradient id="levelGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -450,18 +510,18 @@ export default function App() {
             </div>
 
             <p className="circular-progress-footnote">
-              Nível {level} · faltam {pointsToNextLevel} pontos para subir
+              Level {level} · {pointsToNextLevel} points to level up
             </p>
           </div>
         </div>
 
         <div className="stats-grid">
           <article>
-            <span>Pontos</span>
+            <span>Points</span>
             <strong>{state.points}</strong>
           </article>
           <article>
-            <span>Nível</span>
+            <span>Level</span>
             <strong>{level}</strong>
           </article>
           <article>
@@ -469,13 +529,13 @@ export default function App() {
             <strong>{state.streak}</strong>
           </article>
           <article>
-            <span>Melhor streak</span>
+            <span>Best streak</span>
             <strong>{state.longestStreak}</strong>
           </article>
         </div>
         <div>
           <div className="progress-row">
-            <span>Progresso para nível {level + 1}</span>
+            <span>Progress to level {level + 1}</span>
             <span>{progressPct}%</span>
           </div>
           <div className="progress-track">
@@ -486,35 +546,35 @@ export default function App() {
 
       <main className="content-grid">
         <section className="card">
-          <h2>Checklist de hoje</h2>
+          <h2>Today's checklist</h2>
           <p className="muted">{todayKey}</p>
 
           {isDev && (
             <div className="dev-tools">
               <div className="dev-time-controls">
-                <span>Simulação (dev): dia {devDayOffset >= 0 ? `+${devDayOffset}` : devDayOffset}</span>
+                <span>Simulation (dev): day {devDayOffset >= 0 ? `+${devDayOffset}` : devDayOffset}</span>
                 <div>
                   <button type="button" className="secondary" onClick={() => setDevDayOffset((value) => value - 1)}>
-                    -1 dia
+                    -1 day
                   </button>
                   <button type="button" className="secondary" onClick={() => setDevDayOffset(0)}>
-                    Hoje
+                    Today
                   </button>
                   <button type="button" className="secondary" onClick={() => setDevDayOffset((value) => value + 1)}>
-                    +1 dia
+                    +1 day
                   </button>
                 </div>
               </div>
 
               <div className="dev-level-controls">
-                <span>Nível (dev)</span>
+                <span>Level (dev)</span>
                 <div>
                   <button
                     type="button"
                     className="secondary"
                     onClick={() => setLevelForDev(Math.max(1, level - 1))}
                   >
-                    -1 nível
+                    -1 level
                   </button>
                   <input
                     type="number"
@@ -524,17 +584,17 @@ export default function App() {
                     value={devLevelInput}
                     onChange={(event) => setDevLevelInput(event.target.value)}
                     onBlur={(event) => setLevelForDev(event.target.value)}
-                    aria-label="Nível em desenvolvimento"
+                    aria-label="Development level"
                   />
                   <button
                     type="button"
                     className="secondary"
                     onClick={() => setLevelForDev(level + 1)}
                   >
-                    +1 nível
+                    +1 level
                   </button>
                   <button type="button" className="secondary" onClick={() => setLevelForDev(devLevelInput)}>
-                    Aplicar
+                    Apply
                   </button>
                 </div>
               </div>
@@ -542,7 +602,7 @@ export default function App() {
           )}
 
           {state.activities.length === 0 ? (
-            <p className="muted">Adiciona atividades para começar.</p>
+            <p className="muted">Add activities to get started.</p>
           ) : (
             <ul className="activity-list">
               {state.activities.map((activity) => {
@@ -560,7 +620,7 @@ export default function App() {
                       />
                       <div>
                         <strong>{activity.name}</strong>
-                        <small>{plannedToday ? "Planeado para hoje" : "Opcional hoje"}</small>
+                        <small>{plannedToday ? "Planned for today" : "Optional today"}</small>
                       </div>
                     </label>
                     <span>+{activity.points}</span>
@@ -572,10 +632,10 @@ export default function App() {
 
           <div className="summary-row">
             <span>
-              Feito hoje: {allDoneCount}/{totalActivities} · Pontos: {donePointsToday}/{totalPointsToday}
+              Done today: {allDoneCount}/{totalActivities} · Points: {donePointsToday}/{totalPointsToday}
             </span>
             <button type="button" onClick={finishDay} disabled={alreadyCheckedInToday}>
-              {alreadyCheckedInToday ? "Dia concluído" : "Concluir dia"}
+              {alreadyCheckedInToday ? "Day completed" : "Complete day"}
             </button>
           </div>
 
@@ -583,13 +643,13 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Organizar rotina</h2>
-          <p className="muted">Escolhe em que dias cada atividade deve aparecer.</p>
+          <h2>Organize routine</h2>
+          <p className="muted">Choose which days each activity should appear.</p>
 
           <form className="add-form" onSubmit={addActivity}>
             <input
               type="text"
-              placeholder="Nova atividade (ex: Meditação)"
+              placeholder="New activity (e.g. Meditation)"
               value={newActivityName}
               onChange={(event) => setNewActivityName(event.target.value)}
             />
@@ -600,10 +660,10 @@ export default function App() {
               step="1"
               value={newActivityPoints}
               onChange={(event) => setNewActivityPoints(event.target.value)}
-              aria-label="Pontos da nova atividade"
-              title="Pontos da tarefa"
+              aria-label="Points for new activity"
+              title="Task points"
             />
-            <button type="submit">Adicionar</button>
+            <button type="submit">Add</button>
           </form>
 
           <div className="routine-list">
@@ -622,11 +682,11 @@ export default function App() {
                         value={normalizeActivityPoints(activity.points)}
                         onChange={(event) => updateActivityPoints(activity.id, event.target.value)}
                         onBlur={(event) => updateActivityPoints(activity.id, event.target.value)}
-                        aria-label={`Pontos da atividade ${activity.name}`}
+                        aria-label={`Points for activity ${activity.name}`}
                       />
                     </label>
                     <button type="button" className="remove" onClick={() => removeActivity(activity.id)}>
-                      Remover
+                      Remove
                     </button>
                   </div>
                 </div>
@@ -653,14 +713,14 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Resumo de progresso</h2>
+          <h2>Progress summary</h2>
           <div className="stats-grid compact">
             <article>
-              <span>Taxa de sucesso</span>
+              <span>Success rate</span>
               <strong>{insights.successRate}%</strong>
             </article>
             <article>
-              <span>Média diária</span>
+              <span>Daily average</span>
               <strong>{insights.averageDelta}</strong>
             </article>
           </div>
@@ -669,8 +729,8 @@ export default function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Data</th>
-                  <th>Feito</th>
+                  <th>Date</th>
+                  <th>Done</th>
                   <th>Delta</th>
                   <th>Total</th>
                 </tr>
@@ -679,7 +739,7 @@ export default function App() {
                 {state.history.length === 0 ? (
                   <tr>
                     <td colSpan="4" className="muted">
-                      Ainda sem check-ins.
+                      No check-ins yet.
                     </td>
                   </tr>
                 ) : (

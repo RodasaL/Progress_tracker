@@ -1,0 +1,17 @@
+services:
+  progress-tracker:
+    build: .
+    container_name: progress-tracker
+    env_file:
+      - .env
+    ports:
+      # Host port -> single internal app port (same port serves frontend + /api)
+      - "${APP_PORT:-8000}:${SERVICE_PORT:-8000}"
+    environment:
+      HOST: ${HOST:-0.0.0.0}
+      # FastAPI serves both SPA static files and API routes on this port
+      PORT: ${SERVICE_PORT:-8000}
+      DB_PATH: ${DB_PATH:-/data/progress_tracker.db}
+    volumes:
+      - ${SQLITE_DATA_DIR:-./docker-data}:/data
+    restart: unless-stopped

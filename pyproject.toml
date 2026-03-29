@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "progress-tracker-backend"
+version = "0.1.0"
+description = "FastAPI backend for Progress Tracker"
+authors = ["Progress Tracker"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+fastapi = "^0.115.12"
+uvicorn = { version = "^0.34.0", extras = ["standard"] }
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
